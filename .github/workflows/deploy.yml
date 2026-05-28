@@ -1,0 +1,88 @@
+name: Deploy Bot
+
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_commands:
+        description: 'Deploy Discord slash commands'
+        required: true
+        type: boolean
+        default: true
+
+concurrency:
+  group: top-robbers-bot-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy Bot to VPS
+    runs-on: ubuntu-latest
+
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_USER: ${{ secrets.VPS_USER }}
+      VPS_PORT: ${{ secrets.VPS_SSH_PORT || 22 }}
+      DEPLOY_PATH: /opt/top-robbers/bot
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH
+        run: |
+          set -euo pipefail
+
+          mkdir -p ~/.ssh
+
+          printf '%s\n' "${{ secrets.VPS_SSH_PRIVATE_KEY }}" > ~/.ssh/top_robbers_deploy_key
+          chmod 600 ~/.ssh/top_robbers_deploy_key
+
+          ssh-keyscan -p "$VPS_PORT" -H "$VPS_HOST" >> ~/.ssh/known_hosts
+
+      - name: Ensure deploy directory exists
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/top_robbers_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" \
+            "mkdir -p $DEPLOY_PATH"
+
+      - name: Sync files to VPS
+        run: |
+          set -euo pipefail
+
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/top_robbers_deploy_key -p $VPS_PORT" \
+            --exclude ".git/" \
+            --exclude ".github/" \
+            --exclude "node_modules/" \
+            --exclude "dist/" \
+            --exclude ".env" \
+            --exclude ".env.*" \
+            ./ "$VPS_USER@$VPS_HOST:$DEPLOY_PATH/"
+
+      - name: Deploy Docker service
+        run: |
+          set -euo pipefail
+
+          ssh -i ~/.ssh/top_robbers_deploy_key -p "$VPS_PORT" "$VPS_USER@$VPS_HOST" << EOF
+            set -euo pipefail
+
+            cd "$DEPLOY_PATH"
+
+            if [ ! -f ".env" ]; then
+              echo "Missing $DEPLOY_PATH/.env"
+              exit 1
+            fi
+
+            docker compose -f docker-compose.yml build discord-bot
+
+            if [ "${{ inputs.deploy_commands }}" = "true" ]; then
+              docker compose -f docker-compose.yml run --rm discord-bot npm run commands:deploy:prod
+            fi
+
+            docker compose -f docker-compose.yml up -d --remove-orphans discord-bot
+
+            docker compose -f docker-compose.yml ps
+
+            docker image prune -f
+          EOF

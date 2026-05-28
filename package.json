@@ -12,7 +12,8 @@
         "build": "tsc -p tsconfig.json",
         "check": "tsc --noEmit -p tsconfig.json",
         "start": "node dist/app.js",
-        "commands:deploy": "tsx src/discord/deploy-commands.ts"
+        "commands:deploy": "tsx src/discord/deploy-commands.ts",
+        "commands:deploy:prod": "node dist/discord/deploy-commands.js"
     },
     "dependencies": {
         "discord.js": "^14.26.4",
