@@ -1,15 +1,32 @@
-import { z } from 'zod';
+import type { Client } from 'discord.js';
 import type { FastifyInstance } from 'fastify';
+import { z } from 'zod';
 
 import { env } from '../../config/env.js';
+import { sendServerStatusNotification } from '../../discord/services/server-status-notification.service.js';
 import { logger } from '../../shared/logger.js';
 
-const internalEventSchema = z.object({
-    type: z.string().min(1, 'Event type is required.'),
-    payload: z.record(z.string(), z.unknown()).optional(),
+const tsServerCommandEventSchema = z.object({
+    type: z.literal('ts-server.command'),
+    payload: z.object({
+        command: z.enum(['start', 'stop', 'restart']),
+        success: z.boolean(),
+        service: z.string().min(1).max(100).optional(),
+        actor: z.string().min(1).max(100).optional(),
+        host: z.string().min(1).max(100).optional(),
+        exitCode: z.number().int().optional(),
+        message: z.string().min(1).max(1000).optional(),
+    }),
 });
 
-export async function registerInternalEventsRoute(server: FastifyInstance): Promise<void> {
+const internalEventSchema = z.discriminatedUnion('type', [
+    tsServerCommandEventSchema,
+]);
+
+export async function registerInternalEventsRoute(
+    server: FastifyInstance,
+    client: Client,
+): Promise<void> {
     if (!env.INTERNAL_API_SECRET) {
         logger.warn('INTERNAL_API_SECRET is not set. The /internal/events route is unprotected.');
     }
@@ -36,18 +53,26 @@ export async function registerInternalEventsRoute(server: FastifyInstance): Prom
         if (!parsed.success) {
             logger.warn('Rejected internal event request.', {
                 reason: 'Invalid request body',
-                errors: parsed.error.flatten().fieldErrors,
+                errors: parsed.error.flatten(),
             });
 
             return reply.status(400).send({
                 message: 'Invalid request body.',
-                errors: parsed.error.flatten().fieldErrors,
+                errors: parsed.error.flatten(),
             });
         }
 
+        const event = parsed.data;
+
         logger.info('Internal event received.', {
-            type: parsed.data.type,
+            type: event.type,
         });
+
+        switch (event.type) {
+            case 'ts-server.command':
+                await sendServerStatusNotification(client, event.payload);
+                break;
+        }
 
         return reply.status(202).send({
             message: 'Accepted.',

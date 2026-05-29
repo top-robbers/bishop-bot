@@ -14,6 +14,9 @@ const envSchema = z.object({
 
     INTERNAL_API_SECRET: z.string().optional(),
 
+    CHANNEL_MOD_LOGS: z.string().optional(),
+    CHANNEL_SERVER_STATUS: z.string().optional(),
+
     SERVER_IP: z.string().default('127.0.0.1'),
     SERVER_PORT: z.coerce.number().int().positive().max(65535).default(7777),
     SERVER_QUERY_INTERVAL_MS: z.coerce.number().int().positive().default(30_000),

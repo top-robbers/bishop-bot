@@ -10,7 +10,7 @@ export async function createHttpServer(client: Client): Promise<FastifyInstance>
     });
 
     await registerHealthRoute(server, client);
-    await registerInternalEventsRoute(server);
+    await registerInternalEventsRoute(server, client);
 
     return server;
 }
